@@ -32,7 +32,7 @@ def calculate_product_region_fit(db: Session, wilayah: str = None, model: str = 
         
     results = query.group_by(Transaksi.id_produk, Transaksi.nama_model, Transaksi.kategori, Transaksi.wilayah).all()
     
-    tlc_map = {"Jawa": 1000, "Sumatera": 2500, "Kalimantan": 3000}
+    tlc_map = {"Jawa": 15, "Sumatera": 30, "Kalimantan": 40}
     
     product_fit_data = []
     
@@ -42,7 +42,7 @@ def calculate_product_region_fit(db: Session, wilayah: str = None, model: str = 
         volume = row.volume or 0
         cogs = row.cogs or 0
         
-        tlc_per_unit = tlc_map.get(w, 2000)
+        tlc_per_unit = tlc_map.get(w, 20)
         tlc = volume * tlc_per_unit
         
         total_profit = revenue - cogs - tlc

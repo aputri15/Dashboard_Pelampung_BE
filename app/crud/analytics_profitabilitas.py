@@ -32,7 +32,7 @@ def calculate_regional_profitability(db: Session, bulan: str = None):
     total_volume = 0
     
     # Biaya logistik estimasi jika tidak ada di DB
-    tlc_map = {"Jawa": 1000, "Sumatera": 2500, "Kalimantan": 3000}
+    tlc_map = {"Jawa": 15, "Sumatera": 30, "Kalimantan": 40}
     
     for row in results:
         wilayah = row.wilayah or "Lainnya"
@@ -41,7 +41,7 @@ def calculate_regional_profitability(db: Session, bulan: str = None):
         cogs = row.cogs or 0
         
         # Hitung TLC
-        tlc_per_unit = tlc_map.get(wilayah, 2000)
+        tlc_per_unit = tlc_map.get(wilayah, 20)
         tlc = volume * tlc_per_unit
         
         # Hitung Profit
@@ -91,7 +91,7 @@ def calculate_regional_profitability(db: Session, bulan: str = None):
         vol = row.volume or 0
         rev = row.revenue or 0
         cogs_val = row.cogs or 0
-        tlc_val = vol * tlc_map.get(w, 2000)
+        tlc_val = vol * tlc_map.get(w, 20)
         
         monthly_aggregates[month_key]["revenue"] += rev
         monthly_aggregates[month_key]["cogs"] += cogs_val

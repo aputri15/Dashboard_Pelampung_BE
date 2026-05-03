@@ -41,15 +41,16 @@ def calculate_luce(db: Session, model: str = None):
         avg_harga_jual = revenue / volume
         avg_modal = cogs / volume
         
-        # Simulasi biaya logistik per kota (idealnya dari DB)
-        # Kita buat estimasi sederhana berdasarkan panjang string kota sebagai proxy jarak hehe (hanya mock up kalkulasi)
-        # Atau fixed rate
-        biaya_log_per_unit = 1500 + (len(kota) * 100) 
+        # Simulasi biaya logistik per kota: kita sesuaikan agar logis dengan harga jual (~Rp 300 - Rp 500)
+        # Menggunakan estimasi yang jauh lebih kecil misal Rp 15 - Rp 40 per unit
+        biaya_log_per_unit = 15 + (len(kota) * 1) 
         
         lcr = (biaya_log_per_unit / avg_harga_jual * 100) if avg_harga_jual > 0 else 0
         
         profit_per_unit = avg_harga_jual - avg_modal - biaya_log_per_unit
         
+        # Asumsi fixed cost disesuaikan dengan profit baru (misal Rp 20.000 per trip untuk perhitungan mock)
+        FIXED_TRIP_COST = 20000 
         if profit_per_unit > 0:
             moq = int(FIXED_TRIP_COST / profit_per_unit)
         else:
