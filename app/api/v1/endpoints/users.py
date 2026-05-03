@@ -23,6 +23,12 @@ def create_user(*, db: Session = Depends(deps.get_db), user_in: UserCreate, curr
 def update_user(*, db: Session = Depends(deps.get_db), user_id: int, user_in: UserUpdate, current_user = Depends(deps.get_current_active_admin)) -> Any:
     user = crud_user.get_user(db, user_id=user_id)
     if not user: raise HTTPException(status_code=404, detail="User not found")
+    if user_in.username and user_in.username != user.username:
+        if crud_user.get_user_by_username(db, username=user_in.username):
+            raise HTTPException(status_code=400, detail="Username sudah digunakan")
+    if user_in.email and user_in.email != user.email:
+        if crud_user.get_user_by_email(db, email=user_in.email):
+            raise HTTPException(status_code=400, detail="Email sudah digunakan")
     return crud_user.update_user(db, db_user=user, user_in=user_in)
 
 @router.delete("/{user_id}", response_model=UserResponse)
