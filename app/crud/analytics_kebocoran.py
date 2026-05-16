@@ -45,7 +45,7 @@ def calculate_kebocoran_margin(db: Session, target_kota: str = "Sukabumi", kapas
         bln = extract_month_from_date(row.tanggal_po)
         monthly_data[bln] = monthly_data.get(bln, 0) + (row.volume or 0)
         
-    FIXED_COST = 20000
+    FIXED_COST = 800000
     
     kebocoran_data = []
     total_kebocoran_year = 0
@@ -57,7 +57,7 @@ def calculate_kebocoran_margin(db: Session, target_kota: str = "Sukabumi", kapas
         qty = monthly_data[bln]
         if qty == 0: continue
             
-        utilization = (qty / kapasitas_ideal * 100)
+        utilization = (qty / kapasitas_ideal) * 100
         cost_aktual = FIXED_COST / qty
         cost_target = FIXED_COST / kapasitas_ideal
         

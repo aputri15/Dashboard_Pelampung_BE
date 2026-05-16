@@ -5,8 +5,8 @@ from app.api import deps
 
 from app.crud.analytics_profitabilitas import calculate_regional_profitability
 from app.crud.analytics_product_fit import calculate_product_region_fit
-from app.crud.analytics_luce import calculate_luce
-from app.crud.analytics_kebocoran import calculate_kebocoran_margin
+
+from app.crud.analytics_evaluasi_logistik import calculate_internal_sukabumi, calculate_eksternal_cod
 from app.models.transaksi import Transaksi
 
 router = APIRouter()
@@ -37,8 +37,11 @@ def get_filter_options(
     }
     months_with_labels = []
     for m in month_list:
-        mm = m.split("-")[1] if "-" in m else ""
-        label = bulan_names.get(mm, m)
+        if "-" in m:
+            yyyy, mm = m.split("-")[0], m.split("-")[1]
+            label = f"{bulan_names.get(mm, mm)} {yyyy}"
+        else:
+            label = m
         months_with_labels.append({"value": m, "label": label})
     
     # Distinct wilayah
@@ -69,28 +72,29 @@ def get_regional_profitability(
 def get_product_region_fit(
     db: Session = Depends(deps.get_db),
     wilayah: Optional[str] = None,
-    model: Optional[str] = None,
     bulan: Optional[str] = None,
     current_user = Depends(deps.get_current_user)
 ) -> Any:
     """Endpoint untuk Chart Product-Region Fit."""
-    return calculate_product_region_fit(db, wilayah, model, bulan)
+    return calculate_product_region_fit(db, wilayah, bulan=bulan)
 
-@router.get("/luce")
-def get_luce(
-    db: Session = Depends(deps.get_db),
-    model: Optional[str] = None,
-    current_user = Depends(deps.get_current_user)
-) -> Any:
-    """Endpoint untuk Chart LUCE & LCR."""
-    return calculate_luce(db, model)
 
-@router.get("/kebocoran")
-def get_kebocoran_margin(
+
+@router.get("/evaluasi-logistik/internal")
+def get_evaluasi_internal(
     db: Session = Depends(deps.get_db),
-    kota: str = "Sukabumi",
     kapasitas: int = Query(1000, ge=1),
     current_user = Depends(deps.get_current_user)
 ) -> Any:
-    """Endpoint untuk Chart Kebocoran Margin berdasarkan kota dan kapasitas angkut."""
-    return calculate_kebocoran_margin(db, target_kota=kota, kapasitas_ideal=kapasitas)
+    """Endpoint Evaluasi Logistik Internal (Sukabumi). Kebal terhadap filter bulan."""
+    return calculate_internal_sukabumi(db, kapasitas)
+
+@router.get("/evaluasi-logistik/eksternal")
+def get_evaluasi_eksternal(
+    db: Session = Depends(deps.get_db),
+    bulan: Optional[str] = None,
+    kapasitas: int = Query(1000, ge=1),
+    current_user = Depends(deps.get_current_user)
+) -> Any:
+    """Endpoint Evaluasi Logistik Eksternal (KPI COD, Grafik COD, Tabel Gabungan)."""
+    return calculate_eksternal_cod(db, bulan, kapasitas)

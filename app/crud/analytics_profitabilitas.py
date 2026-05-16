@@ -8,7 +8,7 @@ def calculate_regional_profitability(db: Session, bulan: str = None):
     - Revenue = SUM(total_harga)
     - COGS (Harga Pokok Produksi) = SUM(qty * modal_unit)
     - Estimasi TLC (Total Logistics Cost) per unit: 
-      Jawa = 1000, Sumatera = 2500, Kalimantan = 3000, lainnya = 2000
+      Jawa = 15, Sumatera = 30, Kalimantan = 40, lainnya = 20
     - Gross Profit = Revenue - COGS - TLC
     - GPM (%) = (Gross Profit / Revenue) * 100
     """

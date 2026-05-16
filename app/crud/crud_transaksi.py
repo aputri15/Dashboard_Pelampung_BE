@@ -31,6 +31,7 @@ def get_transaksi_list(
                 Transaksi.nama_pelanggan.ilike(search_term),
                 Transaksi.nama_model.ilike(search_term),
                 Transaksi.kota.ilike(search_term),
+                Transaksi.wilayah.ilike(search_term),
             )
         )
 
@@ -152,7 +153,7 @@ COLUMN_MAP = {
     "modal_unit": ["modal unit", "modal_unit", "modal", "cost", "harga modal"],
 }
 
-REQUIRED_FIELDS = ["nomor_po", "tanggal_po", "nama_pelanggan", "nama_model", "qty", "harga_satuan", "total_harga"]
+REQUIRED_FIELDS = ["nomor_po", "tanggal_po", "nama_pelanggan", "nama_model", "qty", "harga_satuan", "total_harga", "kota"]
 
 def _match_column(header: str) -> Optional[str]:
     """Match an Excel header to a DB field name using the COLUMN_MAP."""
@@ -178,10 +179,10 @@ def process_excel_upload(db: Session, file_content: bytes, filename: str, upload
         # Cari sheet yang memuat data transaksi (bukan master data)
         target_ws = None
         
-        # Prioritas 1: Cari sheet yang mengandung kata 'MASTER2025' atau format bulanan
+        # Prioritas 1: Cari sheet yang mengandung kata 'MASTER' atau format bulanan
         for sheet_name in wb.sheetnames:
             sn_upper = sheet_name.upper()
-            if "MASTER2025" in sn_upper or "TRANSAKSI" in sn_upper:
+            if "MASTER" in sn_upper or "TRANSAKSI" in sn_upper:
                 target_ws = wb[sheet_name]
                 break
                 
@@ -275,7 +276,7 @@ def process_excel_upload(db: Session, file_content: bytes, filename: str, upload
 
         db.commit()
         
-        status = "Sukses" if inserted > 0 and len(errors) == 0 else ("Parsial" if inserted > 0 else "Gagal")
+        status = "Sukses" if inserted > 0 and len(errors) == 0 else ("Berhasil" if inserted > 0 else "Gagal")
         create_log_upload(db, filename, inserted, status, uploaded_by)
 
         return {
