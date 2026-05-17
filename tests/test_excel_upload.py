@@ -173,6 +173,41 @@ class ExcelUploadTests(unittest.TestCase):
         self.assertIn("total_harga", " ".join(result["errors"]))
         self.assertEqual(db.query(Transaksi).count(), 0)
 
+    def test_parses_indonesian_thousand_separators(self):
+        db = make_db()
+        row = VALID_ROW.copy()
+        row[10] = "2"
+        row[11] = "1.000"
+        row[12] = "2.000"
+        row[13] = "12.500"
+        content = make_workbook_bytes([("MASTER2025", [HEADERS, row])])
+
+        result = process_excel_upload(db, content, "rupiah-format.xlsx", "admin")
+
+        self.assertTrue(result["success"])
+        imported = db.query(Transaksi).one()
+        self.assertEqual(imported.qty, 2)
+        self.assertEqual(imported.harga_satuan, 1000)
+        self.assertEqual(imported.total_harga, 2000)
+        self.assertEqual(imported.modal_unit, 12500)
+
+    def test_parses_indonesian_decimal_and_multi_group_values(self):
+        db = make_db()
+        row = VALID_ROW.copy()
+        row[10] = 1
+        row[11] = "1.234.567"
+        row[12] = None
+        row[13] = "1.000,50"
+        content = make_workbook_bytes([("MASTER2025", [HEADERS, row])])
+
+        result = process_excel_upload(db, content, "rupiah-big.xlsx", "admin")
+
+        self.assertTrue(result["success"])
+        imported = db.query(Transaksi).one()
+        self.assertEqual(imported.harga_satuan, 1234567)
+        self.assertEqual(imported.total_harga, 1234567)
+        self.assertEqual(imported.modal_unit, 1000.5)
+
     def test_duplicate_exact_successful_file_rejected_but_failed_file_allowed(self):
         db = make_db()
         content = make_workbook_bytes([("MASTER2025", [HEADERS, VALID_ROW])])

@@ -1,6 +1,7 @@
 from typing import Optional, List, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, inspect, text
+from sqlalchemy.exc import IntegrityError
 from app.models.transaksi import Transaksi, LogUpload
 from app.schemas.transaksi import TransaksiCreate, TransaksiUpdate
 from datetime import datetime
@@ -117,6 +118,13 @@ def ensure_log_upload_file_hash_column(db: Session) -> None:
         connection.execute(
             text("CREATE INDEX IF NOT EXISTS ix_log_upload_file_hash ON log_upload (file_hash)")
         )
+        connection.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_log_upload_success_file_hash "
+                "ON log_upload (file_hash) "
+                "WHERE file_hash IS NOT NULL AND status IN ('Sukses', 'Berhasil')"
+            )
+        )
 
 
 def get_successful_upload_by_hash(db: Session, file_hash: str) -> Optional[LogUpload]:
@@ -146,6 +154,7 @@ def create_log_upload(
     status: str,
     uploaded_by: str,
     file_hash: Optional[str] = None,
+    commit: bool = True,
 ) -> LogUpload:
     ensure_log_upload_file_hash_column(db)
     log = LogUpload(
@@ -157,8 +166,9 @@ def create_log_upload(
         file_hash=file_hash,
     )
     db.add(log)
-    db.commit()
-    db.refresh(log)
+    if commit:
+        db.commit()
+        db.refresh(log)
     return log
 
 def delete_log_upload(db: Session, log_id: int) -> Optional[LogUpload]:
@@ -209,23 +219,8 @@ REQUIRED_HEADERS = [
     "modal_unit",
 ]
 
-REQUIRED_VALUE_FIELDS = [
-    "nomor_po",
-    "tanggal_po",
-    "id_pelanggan",
-    "nama_pelanggan",
-    "wilayah",
-    "provinsi",
-    "kota",
-    "id_produk",
-    "nama_model",
-    "kategori",
-    "qty",
-    "harga_satuan",
-    "modal_unit",
-]
-
 COMPUTED_FIELDS = {"total_harga"}
+REQUIRED_VALUE_FIELDS = [field for field in REQUIRED_HEADERS if field not in COMPUTED_FIELDS]
 FORWARD_FILL_FIELDS = [
     "nomor_po",
     "tanggal_po",
@@ -273,9 +268,20 @@ def _parse_float(value):
         return float(value)
     text_value = str(value).strip().replace(" ", "")
     if "," in text_value and "." in text_value:
-        text_value = text_value.replace(".", "").replace(",", ".")
+        if text_value.rfind(",") > text_value.rfind("."):
+            text_value = text_value.replace(".", "").replace(",", ".")
+        else:
+            text_value = text_value.replace(",", "")
     elif "," in text_value:
-        text_value = text_value.replace(",", ".")
+        parts = text_value.split(",")
+        if len(parts) > 1 and all(len(part) == 3 for part in parts[1:]) and len(parts[0]) <= 3:
+            text_value = "".join(parts)
+        else:
+            text_value = text_value.replace(",", ".")
+    elif "." in text_value:
+        parts = text_value.split(".")
+        if len(parts) > 1 and all(len(part) == 3 for part in parts[1:]) and len(parts[0]) <= 3:
+            text_value = "".join(parts)
     return float(text_value)
 
 
@@ -470,12 +476,23 @@ def process_excel_upload(db: Session, file_content: bytes, filename: str, upload
                 "message": "File tidak mengandung data transaksi valid.",
             }
 
-        for row_data in valid_rows:
-            db.add(Transaksi(**row_data))
-        db.commit()
-
         inserted = len(valid_rows)
-        create_log_upload(db, filename, inserted, "Sukses", uploaded_by, file_hash=file_hash)
+        try:
+            for row_data in valid_rows:
+                db.add(Transaksi(**row_data))
+            create_log_upload(db, filename, inserted, "Sukses", uploaded_by, file_hash=file_hash, commit=False)
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            create_log_upload(db, filename, 0, "Gagal", uploaded_by, file_hash=file_hash)
+            return {
+                "success": False,
+                "total_rows": 0,
+                "inserted_rows": 0,
+                "skipped_rows": 0,
+                "errors": ["File ini sudah pernah diupload."],
+                "message": "File ini sudah pernah diupload.",
+            }
 
         return {
             "success": True,
