@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.crud.crud_transaksi import process_excel_upload
 from app.db.database import Base
-from app.models.transaksi import LogUpload, Transaksi
+from app.models.transaksi import Transaksi
 
 
 HEADERS = [
@@ -144,10 +144,10 @@ class ExcelUploadTests(unittest.TestCase):
 
         self.assertFalse(result["success"])
         self.assertEqual(db.query(Transaksi).count(), 0)
-        joined_errors = " ".join(result["errors"])
-        self.assertIn("Baris 3", joined_errors)
-        self.assertIn("id_produk", joined_errors)
-        self.assertIn("modal_unit", joined_errors)
+        row_3_errors = [err for err in result["errors"] if "Baris 3" in err]
+        self.assertEqual(len(row_3_errors), 1)
+        self.assertIn("id_produk", row_3_errors[0])
+        self.assertIn("modal_unit", row_3_errors[0])
 
     def test_computes_empty_total_harga(self):
         db = make_db()
@@ -178,7 +178,7 @@ class ExcelUploadTests(unittest.TestCase):
         content = make_workbook_bytes([("MASTER2025", [HEADERS, VALID_ROW])])
 
         first = process_excel_upload(db, content, "same.xlsx", "admin")
-        second = process_excel_upload(db, content, "same.xlsx", "admin")
+        second = process_excel_upload(db, content, "renamed.xlsx", "admin")
 
         self.assertTrue(first["success"])
         self.assertFalse(second["success"])
@@ -195,7 +195,7 @@ class ExcelUploadTests(unittest.TestCase):
         self.assertFalse(failed_first["success"])
         self.assertFalse(failed_second["success"])
         self.assertIn("id_produk", " ".join(failed_second["errors"]))
-        self.assertEqual(db.query(LogUpload).filter(LogUpload.status == "Gagal").count(), 3)
+        self.assertEqual(db.query(Transaksi).count(), 1)
 
 
 if __name__ == "__main__":
