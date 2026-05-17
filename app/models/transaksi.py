@@ -27,3 +27,4 @@ class LogUpload(Base):
     jumlah_baris = Column(Integer)
     status = Column(String)
     uploaded_by = Column(String)
+    file_hash = Column(String, nullable=True, index=True)

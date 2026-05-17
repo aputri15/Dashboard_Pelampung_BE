@@ -1,10 +1,12 @@
 from typing import Optional, List, Tuple
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, inspect, text
 from app.models.transaksi import Transaksi, LogUpload
 from app.schemas.transaksi import TransaksiCreate, TransaksiUpdate
 from datetime import datetime
+import hashlib
 import io
+import re
 
 # ==================== TRANSAKSI CRUD ====================
 
@@ -98,6 +100,31 @@ def get_transaksi_stats(db: Session) -> dict:
     }
 
 
+SUCCESS_UPLOAD_STATUSES = ("Sukses", "Berhasil")
+
+
+def calculate_file_hash(file_content: bytes) -> str:
+    return hashlib.sha256(file_content).hexdigest()
+
+
+def ensure_log_upload_file_hash_column(db: Session) -> None:
+    inspector = inspect(db.get_bind())
+    columns = {column["name"] for column in inspector.get_columns("log_upload")}
+    if "file_hash" in columns:
+        return
+    db.execute(text("ALTER TABLE log_upload ADD COLUMN file_hash VARCHAR"))
+    db.commit()
+
+
+def get_successful_upload_by_hash(db: Session, file_hash: str) -> Optional[LogUpload]:
+    return (
+        db.query(LogUpload)
+        .filter(LogUpload.file_hash == file_hash)
+        .filter(LogUpload.status.in_(SUCCESS_UPLOAD_STATUSES))
+        .first()
+    )
+
+
 # ==================== LOG UPLOAD CRUD ====================
 
 def get_log_uploads(db: Session, skip: int = 0, limit: int = 50) -> List[LogUpload]:
@@ -112,6 +139,7 @@ def create_log_upload(
     jumlah_baris: int,
     status: str,
     uploaded_by: str,
+    file_hash: Optional[str] = None,
 ) -> LogUpload:
     log = LogUpload(
         tanggal=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -119,6 +147,7 @@ def create_log_upload(
         jumlah_baris=jumlah_baris,
         status=status,
         uploaded_by=uploaded_by,
+        file_hash=file_hash,
     )
     db.add(log)
     db.commit()
