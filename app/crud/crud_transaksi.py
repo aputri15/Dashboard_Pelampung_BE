@@ -190,7 +190,64 @@ COLUMN_MAP = {
     "modal_unit": ["modal unit", "modal_unit", "modal", "cost", "harga modal"],
 }
 
-REQUIRED_FIELDS = ["nomor_po", "tanggal_po", "nama_pelanggan", "nama_model", "qty", "harga_satuan", "total_harga", "kota"]
+MASTER_SHEET_RE = re.compile(r"^MASTER\d{4}$")
+
+REQUIRED_HEADERS = [
+    "nomor_po",
+    "tanggal_po",
+    "id_pelanggan",
+    "nama_pelanggan",
+    "wilayah",
+    "provinsi",
+    "kota",
+    "id_produk",
+    "nama_model",
+    "kategori",
+    "qty",
+    "harga_satuan",
+    "total_harga",
+    "modal_unit",
+]
+
+REQUIRED_VALUE_FIELDS = [
+    "nomor_po",
+    "tanggal_po",
+    "id_pelanggan",
+    "nama_pelanggan",
+    "wilayah",
+    "provinsi",
+    "kota",
+    "id_produk",
+    "nama_model",
+    "kategori",
+    "qty",
+    "harga_satuan",
+    "modal_unit",
+]
+
+COMPUTED_FIELDS = {"total_harga"}
+FORWARD_FILL_FIELDS = [
+    "nomor_po",
+    "tanggal_po",
+    "nama_pelanggan",
+    "id_pelanggan",
+    "wilayah",
+    "provinsi",
+    "kota",
+]
+TEXT_FIELDS = [
+    "nomor_po",
+    "tanggal_po",
+    "id_pelanggan",
+    "nama_pelanggan",
+    "wilayah",
+    "provinsi",
+    "kota",
+    "id_produk",
+    "nama_model",
+    "kategori",
+]
+NUMERIC_FIELDS = ["harga_satuan", "total_harga", "modal_unit"]
 
 def _match_column(header: str) -> Optional[str]:
     """Match an Excel header to a DB field name using the COLUMN_MAP."""
@@ -200,6 +257,58 @@ def _match_column(header: str) -> Optional[str]:
             return field
     return None
 
+
+def _is_empty(value) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() == ""
+    return False
+
+
+def _parse_float(value):
+    if _is_empty(value):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text_value = str(value).strip().replace(" ", "")
+    if "," in text_value and "." in text_value:
+        text_value = text_value.replace(".", "").replace(",", ".")
+    elif "," in text_value:
+        text_value = text_value.replace(",", ".")
+    return float(text_value)
+
+
+def _parse_int(value):
+    parsed = _parse_float(value)
+    if parsed is None:
+        return None
+    return int(parsed)
+
+
+def _select_master_sheet(wb):
+    master_sheets = [sheet_name for sheet_name in wb.sheetnames if MASTER_SHEET_RE.fullmatch(sheet_name)]
+    if len(master_sheets) == 0:
+        return None, {
+            "success": False,
+            "total_rows": 0,
+            "inserted_rows": 0,
+            "skipped_rows": 0,
+            "errors": ["Sheet transaksi tidak ditemukan. Nama sheet harus MASTER + 4 digit tahun, contoh MASTER2025."],
+            "message": "Sheet transaksi harus bernama MASTER + 4 digit tahun, contoh MASTER2025.",
+        }
+    if len(master_sheets) > 1:
+        return None, {
+            "success": False,
+            "total_rows": 0,
+            "inserted_rows": 0,
+            "skipped_rows": 0,
+            "errors": [f"File memiliki lebih dari satu sheet transaksi: {', '.join(master_sheets)}."],
+            "message": "File memiliki lebih dari satu sheet transaksi MASTERyyyy.",
+        }
+    return wb[master_sheets[0]], None
+
+
 def process_excel_upload(db: Session, file_content: bytes, filename: str, uploaded_by: str) -> dict:
     """
     Parse an uploaded Excel file and insert rows into the transaksi table.
@@ -208,44 +317,48 @@ def process_excel_upload(db: Session, file_content: bytes, filename: str, upload
     try:
         import openpyxl
     except ImportError:
-        return {"success": False, "total_rows": 0, "inserted_rows": 0, "errors": ["openpyxl not installed"], "message": "Server error: openpyxl library not available."}
+        return {
+            "success": False,
+            "total_rows": 0,
+            "inserted_rows": 0,
+            "errors": ["openpyxl not installed"],
+            "message": "Server error: openpyxl library not available.",
+        }
+
+    file_hash = calculate_file_hash(file_content)
 
     try:
+        ensure_log_upload_file_hash_column(db)
+
+        if get_successful_upload_by_hash(db, file_hash):
+            create_log_upload(db, filename, 0, "Gagal", uploaded_by, file_hash=file_hash)
+            return {
+                "success": False,
+                "total_rows": 0,
+                "inserted_rows": 0,
+                "skipped_rows": 0,
+                "errors": ["File ini sudah pernah diupload."],
+                "message": "File ini sudah pernah diupload.",
+            }
+
         wb = openpyxl.load_workbook(io.BytesIO(file_content), read_only=True, data_only=True)
-        
-        # Cari sheet yang memuat data transaksi (bukan master data)
-        target_ws = None
-        
-        # Prioritas 1: Cari sheet yang mengandung kata 'MASTER' atau format bulanan
-        for sheet_name in wb.sheetnames:
-            sn_upper = sheet_name.upper()
-            if "MASTER" in sn_upper or "TRANSAKSI" in sn_upper:
-                target_ws = wb[sheet_name]
-                break
-                
-        # Prioritas 2: Cek sheet mana yang memiliki header transaksi yang benar
-        if not target_ws:
-            for sheet_name in wb.sheetnames:
-                ws_test = wb[sheet_name]
-                # Ambil baris pertama sebagai header
-                first_row = next(ws_test.iter_rows(min_row=1, max_row=1, values_only=True), None)
-                if not first_row:
-                    continue
-                # Hitung berapa banyak kolom wajib yang cocok
-                matched_required = sum(1 for h in first_row if h and _match_column(str(h)) in REQUIRED_FIELDS)
-                if matched_required >= 4: # Jika lebih dari 4 kolom cocok, asumsikan ini sheet transaksi
-                    target_ws = ws_test
-                    break
-        
-        # Fallback ke active sheet jika tidak ditemukan
-        ws = target_ws if target_ws else wb.active
+        ws, sheet_error = _select_master_sheet(wb)
+        if sheet_error:
+            create_log_upload(db, filename, 0, "Gagal", uploaded_by, file_hash=file_hash)
+            return sheet_error
 
         rows = list(ws.iter_rows(values_only=True))
         if len(rows) < 2:
-            create_log_upload(db, filename, 0, "Gagal", uploaded_by)
-            return {"success": False, "total_rows": 0, "inserted_rows": 0, "errors": ["File kosong atau hanya memiliki header."], "message": "File tidak mengandung data."}
+            create_log_upload(db, filename, 0, "Gagal", uploaded_by, file_hash=file_hash)
+            return {
+                "success": False,
+                "total_rows": 0,
+                "inserted_rows": 0,
+                "skipped_rows": 0,
+                "errors": ["File kosong atau hanya memiliki header."],
+                "message": "File tidak mengandung data.",
+            }
 
-        # Map headers
         raw_headers = [str(h).strip() if h else "" for h in rows[0]]
         mapped_headers = {}
         for idx, h in enumerate(raw_headers):
@@ -253,77 +366,135 @@ def process_excel_upload(db: Session, file_content: bytes, filename: str, upload
             if field:
                 mapped_headers[idx] = field
 
-        # Check required fields
         mapped_fields = set(mapped_headers.values())
-        missing = [f for f in REQUIRED_FIELDS if f not in mapped_fields]
-        if missing:
-            create_log_upload(db, filename, 0, "Gagal", uploaded_by)
+        missing_headers = [field for field in REQUIRED_HEADERS if field not in mapped_fields]
+        if missing_headers:
+            create_log_upload(db, filename, 0, "Gagal", uploaded_by, file_hash=file_hash)
             return {
                 "success": False,
                 "total_rows": len(rows) - 1,
                 "inserted_rows": 0,
-                "errors": [f"Kolom wajib tidak ditemukan: {', '.join(missing)}"],
-                "message": f"Kolom wajib tidak ditemukan dalam file.",
+                "skipped_rows": len(rows) - 1,
+                "columns_detected": sorted(mapped_fields),
+                "columns_not_mapped": [h for h in raw_headers if h and not _match_column(h)],
+                "errors": [f"Kolom wajib tidak ditemukan: {', '.join(missing_headers)}"],
+                "message": "Kolom wajib tidak ditemukan dalam file.",
             }
 
         data_rows = rows[1:]
-        inserted = 0
         errors = []
+        valid_rows = []
+        ff_last = {}
 
         for row_idx, row in enumerate(data_rows, start=2):
+            row_data = {}
+            for col_idx, field in mapped_headers.items():
+                row_data[field] = row[col_idx] if col_idx < len(row) else None
+
+            if all(_is_empty(value) for value in row_data.values()):
+                continue
+
+            for ff_field in FORWARD_FILL_FIELDS:
+                if _is_empty(row_data.get(ff_field)):
+                    if ff_field in ff_last:
+                        row_data[ff_field] = ff_last[ff_field]
+                else:
+                    ff_last[ff_field] = row_data[ff_field]
+
+            row_errors = []
+
             try:
-                row_data = {}
-                for col_idx, field in mapped_headers.items():
-                    val = row[col_idx] if col_idx < len(row) else None
-                    row_data[field] = val
+                row_data["qty"] = _parse_int(row_data.get("qty"))
+            except (ValueError, TypeError):
+                row_errors.append(f"qty bukan angka valid: {row_data.get('qty')}")
+                row_data["qty"] = None
 
-                # Type coercion
-                for f in ["qty"]:
-                    if row_data.get(f) is not None:
-                        row_data[f] = int(float(row_data[f]))
-                for f in ["harga_satuan", "total_harga", "modal_unit"]:
-                    if row_data.get(f) is not None:
-                        row_data[f] = float(row_data[f])
+            for field in NUMERIC_FIELDS:
+                try:
+                    row_data[field] = _parse_float(row_data.get(field))
+                except (ValueError, TypeError):
+                    row_errors.append(f"{field} bukan angka valid: {row_data.get(field)}")
+                    row_data[field] = None
 
-                # Convert date to string if needed
-                if row_data.get("tanggal_po") and not isinstance(row_data["tanggal_po"], str):
-                    row_data["tanggal_po"] = str(row_data["tanggal_po"])
+            for field in TEXT_FIELDS:
+                if not _is_empty(row_data.get(field)):
+                    row_data[field] = str(row_data[field]).strip()
 
-                # Ensure strings
-                for f in ["nomor_po", "nama_pelanggan", "nama_model", "wilayah", "provinsi", "kota", "id_pelanggan", "id_produk", "kategori"]:
-                    if row_data.get(f) is not None:
-                        row_data[f] = str(row_data[f])
+            empty_fields = [field for field in REQUIRED_VALUE_FIELDS if _is_empty(row_data.get(field))]
+            if empty_fields:
+                row_errors.append(f"kolom kosong: {', '.join(empty_fields)}")
 
-                # Validate required
-                skip_row = False
-                for rf in REQUIRED_FIELDS:
-                    if not row_data.get(rf):
-                        errors.append(f"Baris {row_idx}: kolom '{rf}' kosong.")
-                        skip_row = True
-                        break
-                if skip_row:
-                    continue
+            qty_val = row_data.get("qty")
+            harga_val = row_data.get("harga_satuan")
+            total_val = row_data.get("total_harga")
+            if qty_val is not None and harga_val is not None:
+                expected_total = float(qty_val) * float(harga_val)
+                if total_val is None:
+                    row_data["total_harga"] = expected_total
+                elif abs(float(total_val) - expected_total) > 1:
+                    row_errors.append(
+                        f"total_harga tidak sesuai rumus qty * harga_satuan: {total_val} != {expected_total}"
+                    )
 
-                db_transaksi = Transaksi(**{k: v for k, v in row_data.items() if v is not None})
-                db.add(db_transaksi)
-                inserted += 1
+            if row_errors:
+                errors.append(f"Baris {row_idx}: {'; '.join(row_errors)}.")
+                continue
 
-            except Exception as e:
-                errors.append(f"Baris {row_idx}: {str(e)}")
+            valid_rows.append({key: value for key, value in row_data.items() if value is not None})
 
+        total_data_rows = len(data_rows)
+        if errors:
+            db.rollback()
+            create_log_upload(db, filename, 0, "Gagal", uploaded_by, file_hash=file_hash)
+            return {
+                "success": False,
+                "total_rows": total_data_rows,
+                "inserted_rows": 0,
+                "skipped_rows": total_data_rows,
+                "columns_detected": sorted(mapped_fields),
+                "columns_not_mapped": [h for h in raw_headers if h and not _match_column(h)],
+                "errors": errors[:20],
+                "message": "Upload gagal. Lengkapi atau perbaiki data Excel terlebih dahulu.",
+            }
+
+        if not valid_rows:
+            create_log_upload(db, filename, 0, "Gagal", uploaded_by, file_hash=file_hash)
+            return {
+                "success": False,
+                "total_rows": total_data_rows,
+                "inserted_rows": 0,
+                "skipped_rows": total_data_rows,
+                "columns_detected": sorted(mapped_fields),
+                "columns_not_mapped": [h for h in raw_headers if h and not _match_column(h)],
+                "errors": ["File tidak mengandung baris transaksi valid."],
+                "message": "File tidak mengandung data transaksi valid.",
+            }
+
+        for row_data in valid_rows:
+            db.add(Transaksi(**row_data))
         db.commit()
-        
-        status = "Sukses" if inserted > 0 and len(errors) == 0 else ("Berhasil" if inserted > 0 else "Gagal")
-        create_log_upload(db, filename, inserted, status, uploaded_by)
+
+        inserted = len(valid_rows)
+        create_log_upload(db, filename, inserted, "Sukses", uploaded_by, file_hash=file_hash)
 
         return {
-            "success": inserted > 0,
-            "total_rows": len(data_rows),
+            "success": True,
+            "total_rows": total_data_rows,
             "inserted_rows": inserted,
-            "errors": errors[:20],  # Limit error messages
-            "message": f"Berhasil mengimpor {inserted} dari {len(data_rows)} baris data." if inserted > 0 else "Tidak ada data yang berhasil diimpor.",
+            "skipped_rows": 0,
+            "columns_detected": sorted(mapped_fields),
+            "columns_not_mapped": [h for h in raw_headers if h and not _match_column(h)],
+            "errors": [],
+            "message": f"Berhasil mengimpor {inserted} dari {total_data_rows} baris.",
         }
 
     except Exception as e:
-        create_log_upload(db, filename, 0, "Gagal", uploaded_by)
-        return {"success": False, "total_rows": 0, "inserted_rows": 0, "errors": [str(e)], "message": f"Error saat memproses file: {str(e)}"}
+        db.rollback()
+        create_log_upload(db, filename, 0, "Gagal", uploaded_by, file_hash=file_hash)
+        return {
+            "success": False,
+            "total_rows": 0,
+            "inserted_rows": 0,
+            "errors": [str(e)],
+            "message": f"Error saat memproses file: {str(e)}",
+        }
