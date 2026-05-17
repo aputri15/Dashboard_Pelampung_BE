@@ -108,15 +108,19 @@ def calculate_file_hash(file_content: bytes) -> str:
 
 
 def ensure_log_upload_file_hash_column(db: Session) -> None:
-    inspector = inspect(db.get_bind())
+    bind = db.get_bind()
+    inspector = inspect(bind)
     columns = {column["name"] for column in inspector.get_columns("log_upload")}
-    if "file_hash" in columns:
-        return
-    db.execute(text("ALTER TABLE log_upload ADD COLUMN file_hash VARCHAR"))
-    db.commit()
+    with bind.begin() as connection:
+        if "file_hash" not in columns:
+            connection.execute(text("ALTER TABLE log_upload ADD COLUMN file_hash VARCHAR"))
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_log_upload_file_hash ON log_upload (file_hash)")
+        )
 
 
 def get_successful_upload_by_hash(db: Session, file_hash: str) -> Optional[LogUpload]:
+    ensure_log_upload_file_hash_column(db)
     return (
         db.query(LogUpload)
         .filter(LogUpload.file_hash == file_hash)
@@ -128,9 +132,11 @@ def get_successful_upload_by_hash(db: Session, file_hash: str) -> Optional[LogUp
 # ==================== LOG UPLOAD CRUD ====================
 
 def get_log_uploads(db: Session, skip: int = 0, limit: int = 50) -> List[LogUpload]:
+    ensure_log_upload_file_hash_column(db)
     return db.query(LogUpload).order_by(LogUpload.id.desc()).offset(skip).limit(limit).all()
 
 def get_log_upload_count(db: Session) -> int:
+    ensure_log_upload_file_hash_column(db)
     return db.query(LogUpload).count()
 
 def create_log_upload(
@@ -141,6 +147,7 @@ def create_log_upload(
     uploaded_by: str,
     file_hash: Optional[str] = None,
 ) -> LogUpload:
+    ensure_log_upload_file_hash_column(db)
     log = LogUpload(
         tanggal=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         nama_file=nama_file,
@@ -155,6 +162,7 @@ def create_log_upload(
     return log
 
 def delete_log_upload(db: Session, log_id: int) -> Optional[LogUpload]:
+    ensure_log_upload_file_hash_column(db)
     log = db.query(LogUpload).filter(LogUpload.id == log_id).first()
     if log:
         db.delete(log)
