@@ -391,6 +391,8 @@ def process_excel_upload(db: Session, file_content: bytes, filename: str, upload
         errors = []
         valid_rows = []
         ff_last = {}
+        blank_row_count = 0
+        total_data_rows = 0
 
         for row_idx, row in enumerate(data_rows, start=2):
             row_data = {}
@@ -398,7 +400,9 @@ def process_excel_upload(db: Session, file_content: bytes, filename: str, upload
                 row_data[field] = row[col_idx] if col_idx < len(row) else None
 
             if all(_is_empty(value) for value in row_data.values()):
+                blank_row_count += 1
                 continue
+            total_data_rows += 1
 
             for ff_field in FORWARD_FILL_FIELDS:
                 if _is_empty(row_data.get(ff_field)):
@@ -448,7 +452,6 @@ def process_excel_upload(db: Session, file_content: bytes, filename: str, upload
 
             valid_rows.append({key: value for key, value in row_data.items() if value is not None})
 
-        total_data_rows = len(data_rows)
         if errors:
             db.rollback()
             create_log_upload(db, filename, 0, "Gagal", uploaded_by, file_hash=file_hash)
@@ -498,7 +501,7 @@ def process_excel_upload(db: Session, file_content: bytes, filename: str, upload
             "success": True,
             "total_rows": total_data_rows,
             "inserted_rows": inserted,
-            "skipped_rows": 0,
+            "skipped_rows": blank_row_count,
             "columns_detected": sorted(mapped_fields),
             "columns_not_mapped": [h for h in raw_headers if h and not _match_column(h)],
             "errors": [],

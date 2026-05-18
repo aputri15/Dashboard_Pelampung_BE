@@ -1,10 +1,15 @@
 import io
+import tempfile
+import threading
 import unittest
+from pathlib import Path
+from unittest import mock
 
 import openpyxl
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from app.crud import crud_transaksi
 from app.crud.crud_transaksi import process_excel_upload
 from app.db.database import Base
 from app.models.transaksi import Transaksi
@@ -50,6 +55,15 @@ def make_db():
     Base.metadata.create_all(bind=engine)
     SessionLocal = sessionmaker(bind=engine)
     return SessionLocal()
+
+
+def make_file_db(db_path):
+    engine = create_engine(
+        f"sqlite:///{db_path}",
+        connect_args={"check_same_thread": False, "timeout": 15},
+    )
+    Base.metadata.create_all(bind=engine)
+    return engine, sessionmaker(bind=engine)
 
 
 def make_workbook_bytes(sheets):
@@ -231,6 +245,80 @@ class ExcelUploadTests(unittest.TestCase):
         self.assertFalse(failed_second["success"])
         self.assertIn("id_produk", " ".join(failed_second["errors"]))
         self.assertEqual(db.query(Transaksi).count(), 1)
+
+    def test_success_summary_counts_transaction_rows_not_blank_sheet_rows(self):
+        db = make_db()
+        second_row = VALID_ROW.copy()
+        second_row[0] = "PO-202501-002"
+        blank_row = [None] * len(HEADERS)
+        content = make_workbook_bytes([("MASTER2025", [HEADERS, VALID_ROW, blank_row, second_row])])
+
+        result = process_excel_upload(db, content, "blank-tail.xlsx", "admin")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["total_rows"], 2)
+        self.assertEqual(result["inserted_rows"], 2)
+        self.assertEqual(result["skipped_rows"], 1)
+        self.assertIn("Berhasil mengimpor 2 dari 2 baris", result["message"])
+
+    def test_concurrent_duplicate_upload_rolls_back_losing_insert(self):
+        content = make_workbook_bytes([("MASTER2025", [HEADERS, VALID_ROW])])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            engine, SessionLocal = make_file_db(Path(tmpdir) / "race.db")
+            barrier = threading.Barrier(2)
+            original_get_successful_upload_by_hash = crud_transaksi.get_successful_upload_by_hash
+            results = []
+            errors = []
+            lock = threading.Lock()
+
+            def racing_duplicate_check(db, file_hash):
+                result = original_get_successful_upload_by_hash(db, file_hash)
+                barrier.wait(timeout=10)
+                return result
+
+            def upload_worker(filename):
+                db = SessionLocal()
+                try:
+                    result = crud_transaksi.process_excel_upload(db, content, filename, "admin")
+                    with lock:
+                        results.append(result)
+                except Exception as exc:
+                    with lock:
+                        errors.append(exc)
+                finally:
+                    db.close()
+
+            with mock.patch(
+                "app.crud.crud_transaksi.get_successful_upload_by_hash",
+                side_effect=racing_duplicate_check,
+            ):
+                threads = [
+                    threading.Thread(target=upload_worker, args=("race-1.xlsx",)),
+                    threading.Thread(target=upload_worker, args=("race-2.xlsx",)),
+                ]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join(timeout=15)
+
+            try:
+                self.assertFalse(any(thread.is_alive() for thread in threads))
+                self.assertEqual(errors, [])
+                self.assertEqual(len(results), 2)
+                successes = [result for result in results if result["success"]]
+                failures = [result for result in results if not result["success"]]
+                self.assertEqual(len(successes), 1)
+                self.assertEqual(len(failures), 1)
+                self.assertIn("sudah pernah diupload", failures[0]["message"])
+
+                check_db = SessionLocal()
+                try:
+                    self.assertEqual(check_db.query(Transaksi).count(), 1)
+                finally:
+                    check_db.close()
+            finally:
+                engine.dispose()
 
 
 if __name__ == "__main__":
