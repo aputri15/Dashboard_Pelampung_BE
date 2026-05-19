@@ -8,3 +8,5 @@ env/
 *.db
 dashboard.db
 *.sqlite3
+
+.worktrees/
