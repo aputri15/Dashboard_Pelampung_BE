@@ -1,57 +1,57 @@
-# Admin Role Revisions Design
+# Desain Revisi Role Admin
 
-Date: 2026-05-19
-Status: Approved design, pending implementation plan
+Tanggal: 2026-05-19
+Status: Desain disetujui, menunggu rencana implementasi
 
-## Context
+## Konteks
 
-The admin role currently manages four pages:
+Role admin saat ini mengelola empat halaman:
 
 - Upload Data
 - Kelola Data
 - Riwayat Log Upload
 - Manajemen Akun
 
-The requested revisions focus on improving admin data checks, search and filter behavior, upload feedback, manual transaction entry, account error messages, and safe log cleanup.
+Revisi yang diminta berfokus pada peningkatan pengecekan data oleh admin, perilaku search dan filter, feedback upload, input transaksi manual, pesan error akun, dan pembersihan log upload yang tetap aman.
 
-Current data snapshot during discovery:
+Snapshot data saat eksplorasi:
 
-- `transaksi`: 2782 rows
-- `log_upload`: 17 rows
-- `users`: admin and owner accounts, including active and inactive examples
+- `transaksi`: 2782 baris
+- `log_upload`: 17 baris
+- `users`: akun admin dan owner, termasuk contoh akun aktif dan nonaktif
 
-Because transaction volume can grow, filtering, search, pagination, and totals should be handled by the backend as the source of truth. The frontend should send filter state to the API and render API results.
+Karena jumlah transaksi bisa terus bertambah, filter, search, pagination, dan total data harus ditangani backend sebagai sumber kebenaran. Frontend mengirim state filter ke API dan merender hasil dari API.
 
-## Goals
+## Tujuan
 
-1. Make Kelola Data totals, search, filters, and pagination accurate for the active filter set.
-2. Add manual one-row transaction input from Upload Data through a "Tambahkan Data" modal.
-3. Allow Excel uploads to skip blank rows, report them clearly, and insert valid rows.
-4. Add search and combined filters to Riwayat Log Upload.
-5. Improve Manajemen Akun duplicate username/email feedback and form reset behavior.
-6. Protect account integrity by validating roles on update and preserving at least one active admin.
-7. Allow admin to remove upload logs from the visible list without breaking duplicate upload protection.
+1. Membuat total data, search, filter, dan pagination pada Kelola Data akurat sesuai filter aktif.
+2. Menambahkan input transaksi manual satu baris dari halaman Upload Data melalui modal "Tambahkan Data".
+3. Mengizinkan upload Excel melewati baris kosong, melaporkannya dengan jelas, dan tetap memasukkan baris valid.
+4. Menambahkan search dan filter kombinasi pada Riwayat Log Upload.
+5. Memperbaiki feedback duplicate username/email dan perilaku reset form pada Manajemen Akun.
+6. Menjaga integritas akun dengan validasi role saat update dan memastikan selalu ada minimal satu admin aktif.
+7. Mengizinkan admin menyembunyikan log upload dari daftar tanpa merusak proteksi duplicate upload.
 
-## Non-Goals
+## Bukan Scope
 
-- Full frontend framework migration.
-- Large admin layout rewrite.
-- Replacing SQLite or changing the authentication model.
-- Rebuilding owner dashboard analytics.
+- Migrasi frontend ke framework baru.
+- Rewrite besar layout admin.
+- Mengganti SQLite atau mengubah model autentikasi.
+- Membangun ulang analytics dashboard owner.
 
-## Approach
+## Pendekatan
 
-Use a backend-first incremental implementation.
+Gunakan implementasi incremental berbasis backend.
 
-The backend will own search, filters, pagination, total counts, validation, and duplicate-upload safety. The frontend will add controls and modals, call the enhanced endpoints, and display clear success or error messages.
+Backend menjadi pemilik search, filter, pagination, total count, validasi, dan keamanan duplicate upload. Frontend menambahkan kontrol UI dan modal, memanggil endpoint yang ditingkatkan, lalu menampilkan pesan sukses atau error yang jelas.
 
-This avoids misleading totals and pagination when data grows, while keeping the implementation scoped to the requested admin revisions.
+Pendekatan ini mencegah total data dan pagination yang menyesatkan saat data bertambah, sambil menjaga perubahan tetap sesuai scope revisi admin.
 
-## Backend Design
+## Desain Backend
 
-### Transaksi Listing
+### Listing Transaksi
 
-Enhance `GET /api/v1/transaksi/` with combined filters:
+Tingkatkan `GET /api/v1/transaksi/` dengan filter kombinasi:
 
 - `search`
 - `bulan`
@@ -60,48 +60,48 @@ Enhance `GET /api/v1/transaksi/` with combined filters:
 - `page`
 - `per_page`
 
-Search will match only:
+Search hanya cocok ke field:
 
 - `nama_pelanggan`
 - `kategori`
 - `nama_model`
 - `kota`
 
-The response will continue to include:
+Response tetap memuat:
 
 - `data`
 - `total`
 - `page`
 - `per_page`
 
-`total` must represent the filtered total, not the whole table.
+`total` harus merepresentasikan total hasil setelah filter aktif, bukan total seluruh tabel.
 
-### Manual Transaction Create
+### Tambah Transaksi Manual
 
-Add `POST /api/v1/transaksi/` for the Upload Data "Tambahkan Data" form.
+Tambahkan `POST /api/v1/transaksi/` untuk form "Tambahkan Data" pada halaman Upload Data.
 
-The form will submit one transaction row. The backend validates required fields and computes:
+Form mengirim satu baris transaksi. Backend memvalidasi field wajib dan menghitung:
 
 ```text
 total_harga = qty * harga_satuan
 ```
 
-The backend will not rely on a frontend-provided `total_harga` for manual create.
+Backend tidak bergantung pada `total_harga` dari frontend untuk tambah transaksi manual.
 
-### Transaction Update
+### Update Transaksi
 
-Update `PUT /api/v1/transaksi/{transaksi_id}` so backend recomputes `total_harga` when either `qty` or `harga_satuan` changes.
+Perbarui `PUT /api/v1/transaksi/{transaksi_id}` agar backend menghitung ulang `total_harga` ketika `qty` atau `harga_satuan` berubah.
 
-### Excel Upload
+### Upload Excel
 
-Excel upload behavior will change for blank rows:
+Perilaku upload Excel untuk baris kosong diubah:
 
-- Blank rows are skipped.
-- Valid rows are inserted.
-- Blank row count and row numbers are returned to the frontend.
-- Upload remains successful if the only issue is blank rows.
+- Baris kosong dilewati.
+- Baris valid dimasukkan ke database.
+- Jumlah baris kosong dan nomor barisnya dikembalikan ke frontend.
+- Upload tetap sukses jika satu-satunya masalah adalah baris kosong.
 
-The upload response should include:
+Response upload harus memuat:
 
 - `success`
 - `total_rows`
@@ -113,68 +113,68 @@ The upload response should include:
 - `errors`
 - `message`
 
-The user-facing message should explain how many valid rows were inserted, how many blank rows were skipped, and which Excel row numbers were skipped.
+Pesan untuk admin harus menjelaskan berapa baris valid yang masuk, berapa baris kosong yang dilewati, dan nomor baris Excel mana yang dilewati.
 
-### Upload Logs
+### Log Upload
 
-Enhance `GET /api/v1/transaksi/log/uploads` with:
+Tingkatkan `GET /api/v1/transaksi/log/uploads` dengan:
 
-- `search` by `nama_file`
+- `search` berdasarkan `nama_file`
 - `bulan`
 - `tahun`
 - `status`
-- pagination parameters
+- parameter pagination
 
-The response should include:
+Response harus memuat:
 
 - `data`
 - `total`
-- `page` or `skip`
-- `per_page` or `limit`
+- `page` atau `skip`
+- `per_page` atau `limit`
 
-### Soft Delete Upload Logs
+### Soft Delete Log Upload
 
-Deleting an upload log will be a soft delete. The log disappears from the visible history, but remains available to duplicate-upload checks.
+Menghapus log upload dilakukan sebagai soft delete. Log hilang dari daftar riwayat yang terlihat, tetapi tetap tersedia untuk pengecekan duplicate upload.
 
-Suggested model field:
+Field model yang disarankan:
 
 - `is_deleted: bool = false`
 
-Alternative acceptable field:
+Alternatif yang juga bisa diterima:
 
 - `hidden_at: datetime | null`
 
-Visible log listing filters out deleted logs. Duplicate file detection still checks successful uploads by `file_hash`, including hidden logs.
+Listing log yang terlihat memfilter log yang sudah dihapus. Deteksi duplicate file tetap memeriksa upload sukses berdasarkan `file_hash`, termasuk log yang sudah disembunyikan.
 
-This allows admins to clean the visible log table without allowing duplicate dataset uploads.
+Dengan desain ini admin bisa membersihkan tampilan tabel log tanpa membuat dataset yang sama bisa di-upload ulang.
 
-### User Management
+### Manajemen User
 
-Create and update user flows will return specific duplicate messages:
+Flow create dan update user mengembalikan pesan duplicate yang spesifik:
 
-- Username already used
-- Email already used
-- Username and email already used, if both conflict
+- Username sudah digunakan
+- Email sudah digunakan
+- Username dan email sudah digunakan, jika keduanya konflik
 
-Backend role validation applies to both create and update:
+Validasi role di backend berlaku untuk create dan update:
 
-- allowed roles: `admin`, `owner`
+- role yang diizinkan: `admin`, `owner`
 
-Backend must prevent actions that leave the system with zero active admin accounts. This includes:
+Backend harus mencegah aksi yang membuat sistem tidak memiliki admin aktif. Ini mencakup:
 
-- deleting the last active admin
-- deactivating the last active admin
-- changing the last active admin's role to owner
+- menghapus admin aktif terakhir
+- menonaktifkan admin aktif terakhir
+- mengubah role admin aktif terakhir menjadi owner
 
-Deleting oneself is already blocked and remains blocked.
+Menghapus akun sendiri sudah diblokir dan tetap diblokir.
 
-## Frontend Design
+## Desain Frontend
 
-### Upload Data Page
+### Halaman Upload Data
 
-Add a "Tambahkan Data" button on the Upload Data page.
+Tambahkan tombol "Tambahkan Data" pada halaman Upload Data.
 
-The button opens a modal with a complete one-row transaction form. Required fields include:
+Tombol membuka modal berisi form transaksi lengkap untuk satu baris. Field wajib:
 
 - Nomor PO
 - Tanggal PO
@@ -190,142 +190,142 @@ The button opens a modal with a complete one-row transaction form. Required fiel
 - Harga Satuan
 - Modal Unit
 
-`total_harga` is computed by the backend. The UI may show a calculated preview, but it is not the source of truth.
+`total_harga` dihitung oleh backend. UI boleh menampilkan preview hasil hitung, tetapi bukan sumber kebenaran.
 
-After successful manual submit:
+Setelah submit manual berhasil:
 
-- close or reset the modal
-- clear form fields
-- show a success notification
+- tutup atau reset modal
+- kosongkan field form
+- tampilkan notifikasi sukses
 
-After Excel upload:
+Setelah upload Excel:
 
-- show inserted row count
-- show skipped blank row count
-- show skipped Excel row numbers
-- show total processed rows
+- tampilkan jumlah baris yang masuk database
+- tampilkan jumlah baris kosong yang dilewati
+- tampilkan nomor baris Excel yang kosong
+- tampilkan total baris yang diproses
 
-The upload request should use shared auth behavior so token refresh remains consistent with other API calls.
+Request upload harus memakai perilaku auth yang konsisten agar token refresh tetap sejalan dengan request API lain.
 
-### Kelola Data Page
+### Halaman Kelola Data
 
-Add a total data summary that follows active filters.
+Tambahkan ringkasan total data yang mengikuti filter aktif.
 
-Search placeholder:
+Placeholder search:
 
 ```text
 Cari pelanggan, kategori, model, kota...
 ```
 
-Add separate dropdowns:
+Tambahkan dropdown terpisah:
 
 - Bulan
 - Tahun
 - Wilayah
 
-Search and filters must be combinable. Pagination must use the filtered `total` from the backend.
+Search dan semua filter harus bisa dipadukan. Pagination memakai `total` hasil filter dari backend.
 
-Add a reset-filter control so admin can quickly return to all data.
+Tambahkan kontrol reset filter agar admin cepat kembali ke tampilan semua data.
 
-### Riwayat Log Upload Page
+### Halaman Riwayat Log Upload
 
-Add:
+Tambahkan:
 
-- search by file name
-- month dropdown
-- year dropdown
-- status dropdown with `Semua`, `Sukses`, `Gagal`
-- pagination and filtered total display
+- search berdasarkan nama file
+- dropdown bulan
+- dropdown tahun
+- dropdown status dengan opsi `Semua`, `Sukses`, `Gagal`
+- pagination dan tampilan total hasil filter
 
-Search and filters must be combinable.
+Search dan semua filter harus bisa dipadukan.
 
-The delete action hides logs through backend soft delete. Successful hidden logs still protect against duplicate uploads.
+Aksi hapus log menyembunyikan log melalui soft delete backend. Log sukses yang disembunyikan tetap melindungi sistem dari duplicate upload.
 
-### Manajemen Akun Page
+### Halaman Manajemen Akun
 
-Toast behavior:
+Perilaku toast:
 
-- success toast: green
-- failed toast: red
+- toast sukses: hijau
+- toast gagal: merah
 
-Duplicate create and duplicate update messages must be specific:
+Pesan duplicate saat create dan update harus spesifik:
 
 - `Tidak berhasil, username telah digunakan.`
 - `Tidak berhasil, email telah digunakan.`
 - `Tidak berhasil, username dan email telah digunakan.`
 
-The Tambah Akun modal form resets after a submit attempt, whether create succeeds or fails.
+Form modal Tambah Akun direset setelah submit, baik create berhasil maupun gagal.
 
-The hardcoded user pagination footer should either be made real or removed until real pagination is implemented.
+Footer pagination user yang masih hardcoded harus dibuat benar atau dihapus sampai pagination asli diimplementasikan.
 
-## Data Flow
+## Alur Data
 
-### Upload With Blank Rows
+### Upload Dengan Baris Kosong
 
-1. Admin uploads Excel.
-2. Backend validates sheet and headers.
-3. Backend skips fully blank rows and records their Excel row numbers.
-4. Backend inserts valid transaction rows.
-5. Backend creates an upload log with `file_hash`.
-6. Frontend shows upload result, including blank row details.
-7. Admin can use "Tambahkan Data" to manually add missing rows.
+1. Admin mengupload Excel.
+2. Backend memvalidasi sheet dan header.
+3. Backend melewati baris yang sepenuhnya kosong dan mencatat nomor baris Excel-nya.
+4. Backend memasukkan baris transaksi yang valid.
+5. Backend membuat log upload dengan `file_hash`.
+6. Frontend menampilkan hasil upload, termasuk detail baris kosong.
+7. Admin bisa memakai "Tambahkan Data" untuk memasukkan baris yang hilang secara manual.
 
-### Manual Add Data
+### Tambah Data Manual
 
-1. Admin opens "Tambahkan Data".
-2. Admin fills one transaction row.
-3. Frontend submits to `POST /api/v1/transaksi/`.
-4. Backend validates and computes `total_harga`.
-5. Frontend shows success and refreshes relevant counts when needed.
+1. Admin membuka "Tambahkan Data".
+2. Admin mengisi satu baris transaksi.
+3. Frontend mengirim data ke `POST /api/v1/transaksi/`.
+4. Backend memvalidasi dan menghitung `total_harga`.
+5. Frontend menampilkan sukses dan me-refresh count yang relevan jika diperlukan.
 
-### Log Soft Delete
+### Soft Delete Log
 
-1. Admin clicks delete on a log row.
-2. Backend marks the log hidden/deleted.
-3. Log no longer appears in history.
-4. Duplicate upload checks still include hidden successful logs.
+1. Admin menekan hapus pada baris log.
+2. Backend menandai log sebagai hidden/deleted.
+3. Log tidak lagi muncul di riwayat.
+4. Pengecekan duplicate upload tetap menyertakan log sukses yang disembunyikan.
 
 ## Error Handling
 
-- Upload validation errors show clear reasons and row details.
-- Upload with blank rows is success with warning details, not failure.
-- Duplicate username/email errors show red notification with specific message.
-- Failed data loads show explicit failure messages instead of empty-table states.
-- Backend validation errors remain authoritative even if frontend validation is bypassed.
+- Error validasi upload menampilkan alasan dan detail baris yang jelas.
+- Upload dengan baris kosong menjadi sukses dengan detail warning, bukan gagal.
+- Duplicate username/email menampilkan notifikasi merah dengan pesan spesifik.
+- Gagal memuat data menampilkan pesan gagal eksplisit, bukan state tabel kosong palsu.
+- Validasi backend tetap menjadi sumber kebenaran walaupun validasi frontend dilewati.
 
-## Testing Plan
+## Rencana Testing
 
-Backend tests:
+Test backend:
 
-- Excel upload succeeds with valid rows and skipped blank rows.
-- Excel upload response includes blank row count and row numbers.
-- Manual transaction create computes `total_harga`.
-- Transaction update recomputes `total_harga` when qty or price changes.
-- Transaksi search matches only pelanggan, kategori, model, and kota.
-- Transaksi filters combine bulan, tahun, wilayah, and search.
-- Upload log search/filter combines filename, month, year, and status.
-- Soft-deleted successful upload logs remain active for duplicate detection.
-- Duplicate username/email create and update return specific messages.
-- Role update rejects roles outside `admin` and `owner`.
-- Backend prevents deleting, deactivating, or demoting the last active admin.
+- Upload Excel sukses dengan baris valid dan baris kosong yang dilewati.
+- Response upload Excel memuat jumlah dan nomor baris kosong.
+- Tambah transaksi manual menghitung `total_harga`.
+- Update transaksi menghitung ulang `total_harga` saat qty atau harga berubah.
+- Search transaksi hanya cocok ke pelanggan, kategori, model, dan kota.
+- Filter transaksi menggabungkan bulan, tahun, wilayah, dan search.
+- Search/filter log upload menggabungkan filename, bulan, tahun, dan status.
+- Log upload sukses yang di-soft-delete tetap aktif untuk duplicate detection.
+- Duplicate username/email saat create dan update mengembalikan pesan spesifik.
+- Update role menolak role selain `admin` dan `owner`.
+- Backend mencegah penghapusan, penonaktifan, atau demosi admin aktif terakhir.
 
-Frontend verification:
+Verifikasi frontend:
 
 - `npm run build`
-- Manual browser check for four admin pages:
+- Cek manual di browser untuk empat halaman admin:
   - Upload Data
   - Kelola Data
   - Riwayat Log Upload
   - Manajemen Akun
 
-## Open Decisions
+## Keputusan Final
 
-No open product decisions remain. The approved choices are:
+Tidak ada keputusan produk yang masih terbuka. Pilihan yang sudah disetujui:
 
-- Backend-first implementation.
-- Upload blank rows are skipped and reported.
-- Manual "Tambahkan Data" uses a complete one-row transaction form.
-- Kelola Data filters use separate month, year, and wilayah dropdowns.
-- Log Upload filters use separate month, year, and status dropdowns.
-- Upload log delete uses soft delete.
-- Backend validates role update and preserves at least one active admin.
+- Implementasi backend-first.
+- Baris kosong pada upload dilewati dan dilaporkan.
+- Manual "Tambahkan Data" memakai form transaksi lengkap satu baris.
+- Filter Kelola Data memakai dropdown bulan, tahun, dan wilayah yang terpisah.
+- Filter Log Upload memakai dropdown bulan, tahun, dan status yang terpisah.
+- Hapus log upload memakai soft delete.
+- Backend memvalidasi role saat update dan menjaga minimal satu admin aktif.
