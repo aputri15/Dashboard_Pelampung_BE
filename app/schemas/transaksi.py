@@ -64,6 +64,17 @@ class LogUploadResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class LogUploadListResponse(BaseModel):
+    data: List[LogUploadResponse]
+    total: int
+    page: int
+    per_page: int
+
+class LogUploadFilterOptionsResponse(BaseModel):
+    bulan: List[str]
+    tahun: List[str]
+    status: List[str]
+
 class TransaksiListResponse(BaseModel):
     data: List[TransaksiResponse]
     total: int

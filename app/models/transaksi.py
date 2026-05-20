@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Text
+from sqlalchemy import Boolean, Column, Integer, String, Float, Text
 from app.db.database import Base
 
 class Transaksi(Base):
@@ -28,3 +28,4 @@ class LogUpload(Base):
     status = Column(String)
     uploaded_by = Column(String)
     file_hash = Column(String, nullable=True, index=True)
+    is_deleted = Column(Boolean(), default=False, nullable=False)

@@ -140,13 +140,15 @@ def calculate_file_hash(file_content: bytes) -> str:
     return hashlib.sha256(file_content).hexdigest()
 
 
-def ensure_log_upload_file_hash_column(db: Session) -> None:
+def ensure_log_upload_columns(db: Session) -> None:
     bind = db.get_bind()
     inspector = inspect(bind)
     columns = {column["name"] for column in inspector.get_columns("log_upload")}
     with bind.begin() as connection:
         if "file_hash" not in columns:
             connection.execute(text("ALTER TABLE log_upload ADD COLUMN file_hash VARCHAR"))
+        if "is_deleted" not in columns:
+            connection.execute(text("ALTER TABLE log_upload ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT 0"))
         connection.execute(
             text("CREATE INDEX IF NOT EXISTS ix_log_upload_file_hash ON log_upload (file_hash)")
         )
@@ -160,7 +162,7 @@ def ensure_log_upload_file_hash_column(db: Session) -> None:
 
 
 def get_successful_upload_by_hash(db: Session, file_hash: str) -> Optional[LogUpload]:
-    ensure_log_upload_file_hash_column(db)
+    ensure_log_upload_columns(db)
     return (
         db.query(LogUpload)
         .filter(LogUpload.file_hash == file_hash)
@@ -171,13 +173,61 @@ def get_successful_upload_by_hash(db: Session, file_hash: str) -> Optional[LogUp
 
 # ==================== LOG UPLOAD CRUD ====================
 
-def get_log_uploads(db: Session, skip: int = 0, limit: int = 50) -> List[LogUpload]:
-    ensure_log_upload_file_hash_column(db)
-    return db.query(LogUpload).order_by(LogUpload.id.desc()).offset(skip).limit(limit).all()
+def get_log_uploads(
+    db: Session,
+    page: int = 1,
+    per_page: int = 50,
+    search: str = None,
+    bulan: str = None,
+    tahun: str = None,
+    status: str = None,
+    include_deleted: bool = False,
+) -> Tuple[List[LogUpload], int]:
+    ensure_log_upload_columns(db)
+    query = db.query(LogUpload)
+
+    if not include_deleted:
+        query = query.filter(LogUpload.is_deleted == False)  # noqa: E712
+
+    if search:
+        query = query.filter(LogUpload.nama_file.ilike(f"%{search}%"))
+
+    if tahun and tahun != "Semua":
+        query = query.filter(LogUpload.tanggal.like(f"{tahun}-%"))
+
+    if bulan and bulan != "Semua":
+        bulan_value = str(bulan).zfill(2)
+        query = query.filter(func.substr(LogUpload.tanggal, 6, 2) == bulan_value)
+
+    if status and status != "Semua":
+        query = query.filter(LogUpload.status == status)
+
+    total = query.count()
+    skip = (page - 1) * per_page
+    logs = query.order_by(LogUpload.id.desc()).offset(skip).limit(per_page).all()
+    return logs, total
 
 def get_log_upload_count(db: Session) -> int:
-    ensure_log_upload_file_hash_column(db)
-    return db.query(LogUpload).count()
+    ensure_log_upload_columns(db)
+    return db.query(LogUpload).filter(LogUpload.is_deleted == False).count()  # noqa: E712
+
+def get_log_upload_filter_options(db: Session) -> dict:
+    ensure_log_upload_columns(db)
+    rows = db.query(LogUpload.tanggal, LogUpload.status).filter(LogUpload.is_deleted == False).all()  # noqa: E712
+    bulan_set = set()
+    tahun_set = set()
+    status_set = set()
+    for tanggal, status in rows:
+        if tanggal and len(tanggal) >= 7 and "-" in tanggal:
+            tahun_set.add(tanggal[:4])
+            bulan_set.add(tanggal[5:7])
+        if status:
+            status_set.add(status)
+    return {
+        "bulan": sorted(bulan_set),
+        "tahun": sorted(tahun_set),
+        "status": sorted(status_set),
+    }
 
 def create_log_upload(
     db: Session,
@@ -188,7 +238,7 @@ def create_log_upload(
     file_hash: Optional[str] = None,
     commit: bool = True,
 ) -> LogUpload:
-    ensure_log_upload_file_hash_column(db)
+    ensure_log_upload_columns(db)
     log = LogUpload(
         tanggal=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         nama_file=nama_file,
@@ -204,11 +254,21 @@ def create_log_upload(
     return log
 
 def delete_log_upload(db: Session, log_id: int) -> Optional[LogUpload]:
-    ensure_log_upload_file_hash_column(db)
+    ensure_log_upload_columns(db)
     log = db.query(LogUpload).filter(LogUpload.id == log_id).first()
     if log:
         db.delete(log)
         db.commit()
+    return log
+
+def soft_delete_log_upload(db: Session, log_id: int) -> Optional[LogUpload]:
+    ensure_log_upload_columns(db)
+    log = db.query(LogUpload).filter(LogUpload.id == log_id).first()
+    if log:
+        log.is_deleted = True
+        db.add(log)
+        db.commit()
+        db.refresh(log)
     return log
 
 
@@ -366,7 +426,7 @@ def process_excel_upload(db: Session, file_content: bytes, filename: str, upload
     file_hash = calculate_file_hash(file_content)
 
     try:
-        ensure_log_upload_file_hash_column(db)
+        ensure_log_upload_columns(db)
 
         if get_successful_upload_by_hash(db, file_hash):
             create_log_upload(db, filename, 0, "Gagal", uploaded_by, file_hash=file_hash)
@@ -424,6 +484,7 @@ def process_excel_upload(db: Session, file_content: bytes, filename: str, upload
         valid_rows = []
         ff_last = {}
         blank_row_count = 0
+        blank_rows = []
         total_data_rows = 0
 
         for row_idx, row in enumerate(data_rows, start=2):
@@ -433,6 +494,7 @@ def process_excel_upload(db: Session, file_content: bytes, filename: str, upload
 
             if all(_is_empty(value) for value in row_data.values()):
                 blank_row_count += 1
+                blank_rows.append(row_idx)
                 continue
             total_data_rows += 1
 
@@ -529,15 +591,22 @@ def process_excel_upload(db: Session, file_content: bytes, filename: str, upload
                 "message": "File ini sudah pernah diupload.",
             }
 
+        message = f"Berhasil mengimpor {inserted} dari {total_data_rows} baris."
+        if blank_row_count:
+            message += f" Baris kosong dilewati: {', '.join(str(row) for row in blank_rows)}."
+
         return {
             "success": True,
             "total_rows": total_data_rows,
+            "processed_rows": total_data_rows,
             "inserted_rows": inserted,
             "skipped_rows": blank_row_count,
+            "blank_row_count": blank_row_count,
+            "blank_rows": blank_rows,
             "columns_detected": sorted(mapped_fields),
             "columns_not_mapped": [h for h in raw_headers if h and not _match_column(h)],
             "errors": [],
-            "message": f"Berhasil mengimpor {inserted} dari {total_data_rows} baris.",
+            "message": message,
         }
 
     except Exception as e:

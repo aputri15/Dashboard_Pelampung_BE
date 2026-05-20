@@ -5,7 +5,8 @@ from app.api import deps
 from app.crud import crud_transaksi
 from app.schemas.transaksi import (
     TransaksiCreate, TransaksiManualCreate, TransaksiUpdate, TransaksiResponse,
-    TransaksiListResponse, LogUploadResponse, TransaksiFilterOptionsResponse,
+    TransaksiListResponse, LogUploadResponse, LogUploadListResponse,
+    LogUploadFilterOptionsResponse, TransaksiFilterOptionsResponse,
 )
 
 router = APIRouter()
@@ -153,15 +154,37 @@ async def upload_excel(
 
 # ==================== LOG UPLOAD ENDPOINTS ====================
 
-@router.get("/log/uploads", response_model=List[LogUploadResponse])
+@router.get("/log/uploads", response_model=LogUploadListResponse)
 def read_log_uploads(
     db: Session = Depends(deps.get_db),
-    skip: int = 0,
-    limit: int = 50,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=100),
+    search: Optional[str] = None,
+    bulan: Optional[str] = None,
+    tahun: Optional[str] = None,
+    status: Optional[str] = None,
     current_user=Depends(deps.get_current_active_admin),
 ) -> Any:
-    """Get all upload log entries (admin only)."""
-    return crud_transaksi.get_log_uploads(db, skip=skip, limit=limit)
+    """Get paginated upload log entries with filters (admin only)."""
+    data, total = crud_transaksi.get_log_uploads(
+        db,
+        page=page,
+        per_page=per_page,
+        search=search,
+        bulan=bulan,
+        tahun=tahun,
+        status=status,
+    )
+    return {"data": data, "total": total, "page": page, "per_page": per_page}
+
+
+@router.get("/log/upload-filter-options", response_model=LogUploadFilterOptionsResponse)
+def read_log_upload_filter_options(
+    db: Session = Depends(deps.get_db),
+    current_user=Depends(deps.get_current_active_admin),
+) -> Any:
+    """Get filter options for upload log page."""
+    return crud_transaksi.get_log_upload_filter_options(db)
 
 
 @router.delete("/log/uploads/{log_id}")
@@ -171,7 +194,7 @@ def delete_log_entry(
     current_user=Depends(deps.get_current_active_admin),
 ) -> Any:
     """Delete a specific log entry (admin only)."""
-    log = crud_transaksi.delete_log_upload(db, log_id=log_id)
+    log = crud_transaksi.soft_delete_log_upload(db, log_id=log_id)
     if not log:
         raise HTTPException(status_code=404, detail="Log not found")
     return {"message": "Log berhasil dihapus."}
