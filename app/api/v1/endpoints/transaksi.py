@@ -4,8 +4,8 @@ from sqlalchemy.orm import Session
 from app.api import deps
 from app.crud import crud_transaksi
 from app.schemas.transaksi import (
-    TransaksiCreate, TransaksiUpdate, TransaksiResponse,
-    TransaksiListResponse, LogUploadResponse,
+    TransaksiCreate, TransaksiManualCreate, TransaksiUpdate, TransaksiResponse,
+    TransaksiListResponse, LogUploadResponse, TransaksiFilterOptionsResponse,
 )
 
 router = APIRouter()
@@ -21,11 +21,12 @@ def read_transaksi(
     search: Optional[str] = None,
     wilayah: Optional[str] = None,
     bulan: Optional[str] = None,
+    tahun: Optional[str] = None,
     current_user=Depends(deps.get_current_user),
 ) -> Any:
     """Get paginated transaksi data with optional search and filters."""
     data, total = crud_transaksi.get_transaksi_list(
-        db, page=page, per_page=per_page, search=search, wilayah=wilayah, bulan=bulan
+        db, page=page, per_page=per_page, search=search, wilayah=wilayah, bulan=bulan, tahun=tahun
     )
     return {"data": data, "total": total, "page": page, "per_page": per_page}
 
@@ -46,6 +47,25 @@ def get_wilayah(
 ) -> Any:
     """Get distinct wilayah values for filter dropdowns."""
     return crud_transaksi.get_all_wilayah(db)
+
+
+@router.post("/", response_model=TransaksiResponse)
+def create_manual_transaksi(
+    transaksi_in: TransaksiManualCreate,
+    db: Session = Depends(deps.get_db),
+    current_user=Depends(deps.get_current_active_admin),
+) -> Any:
+    """Create one transaksi row manually from admin Upload Data page."""
+    return crud_transaksi.create_manual_transaksi(db, transaksi_in=transaksi_in)
+
+
+@router.get("/filter-options", response_model=TransaksiFilterOptionsResponse)
+def read_transaksi_filter_options(
+    db: Session = Depends(deps.get_db),
+    current_user=Depends(deps.get_current_active_admin),
+) -> Any:
+    """Get filter options for admin Kelola Data page."""
+    return crud_transaksi.get_transaksi_filter_options(db)
 
 
 @router.get("/{transaksi_id}", response_model=TransaksiResponse)

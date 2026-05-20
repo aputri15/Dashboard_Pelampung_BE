@@ -20,6 +20,21 @@ class TransaksiBase(BaseModel):
 class TransaksiCreate(TransaksiBase):
     pass
 
+class TransaksiManualCreate(BaseModel):
+    nomor_po: str
+    tanggal_po: str
+    id_pelanggan: str
+    nama_pelanggan: str
+    wilayah: str
+    provinsi: str
+    kota: str
+    id_produk: str
+    nama_model: str
+    kategori: str
+    qty: int
+    harga_satuan: float
+    modal_unit: float
+
 class TransaksiUpdate(BaseModel):
     nomor_po: Optional[str] = None
     tanggal_po: Optional[str] = None
@@ -54,3 +69,8 @@ class TransaksiListResponse(BaseModel):
     total: int
     page: int
     per_page: int
+
+class TransaksiFilterOptionsResponse(BaseModel):
+    bulan: List[str]
+    tahun: List[str]
+    wilayah: List[str]

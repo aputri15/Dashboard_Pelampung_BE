@@ -21,30 +21,31 @@ def get_transaksi_list(
     search: str = None,
     wilayah: str = None,
     bulan: str = None,
+    tahun: str = None,
 ) -> Tuple[List[Transaksi], int]:
     """Get paginated and filtered transaksi list."""
     query = db.query(Transaksi)
 
-    # Search filter
     if search:
         search_term = f"%{search}%"
         query = query.filter(
             or_(
-                Transaksi.nomor_po.ilike(search_term),
                 Transaksi.nama_pelanggan.ilike(search_term),
+                Transaksi.kategori.ilike(search_term),
                 Transaksi.nama_model.ilike(search_term),
                 Transaksi.kota.ilike(search_term),
-                Transaksi.wilayah.ilike(search_term),
             )
         )
 
-    # Wilayah filter
     if wilayah and wilayah != "Semua":
         query = query.filter(Transaksi.wilayah == wilayah)
 
-    # Bulan filter (format: "2025-01")
+    if tahun and tahun != "Semua":
+        query = query.filter(Transaksi.tanggal_po.like(f"{tahun}-%"))
+
     if bulan and bulan != "Semua":
-        query = query.filter(Transaksi.tanggal_po.like(f"{bulan}%"))
+        bulan_value = str(bulan).zfill(2)
+        query = query.filter(func.substr(Transaksi.tanggal_po, 6, 2) == bulan_value)
 
     total = query.count()
     skip = (page - 1) * per_page
@@ -64,14 +65,45 @@ def create_transaksi(db: Session, transaksi_in: TransaksiCreate) -> Transaksi:
     db.refresh(db_transaksi)
     return db_transaksi
 
-def update_transaksi(db: Session, db_transaksi: Transaksi, transaksi_in: TransaksiUpdate) -> Transaksi:
-    update_data = transaksi_in.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(db_transaksi, field, value)
+def create_manual_transaksi(db: Session, transaksi_in) -> Transaksi:
+    data = transaksi_in.model_dump()
+    data["total_harga"] = float(data["qty"]) * float(data["harga_satuan"])
+    db_transaksi = Transaksi(**data)
     db.add(db_transaksi)
     db.commit()
     db.refresh(db_transaksi)
     return db_transaksi
+
+def update_transaksi(db: Session, db_transaksi: Transaksi, transaksi_in: TransaksiUpdate) -> Transaksi:
+    update_data = transaksi_in.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(db_transaksi, field, value)
+    if "qty" in update_data or "harga_satuan" in update_data:
+        qty = db_transaksi.qty or 0
+        harga_satuan = db_transaksi.harga_satuan or 0
+        db_transaksi.total_harga = float(qty) * float(harga_satuan)
+    db.add(db_transaksi)
+    db.commit()
+    db.refresh(db_transaksi)
+    return db_transaksi
+
+def get_transaksi_filter_options(db: Session) -> dict:
+    dates = db.query(Transaksi.tanggal_po).distinct().all()
+    bulan_set = set()
+    tahun_set = set()
+    for (tanggal,) in dates:
+        if tanggal and len(tanggal) >= 7 and "-" in tanggal:
+            tahun_set.add(tanggal[:4])
+            bulan_set.add(tanggal[5:7])
+
+    wilayah = db.query(Transaksi.wilayah).distinct().all()
+    wilayah_list = sorted([row[0] for row in wilayah if row[0]])
+
+    return {
+        "bulan": sorted(bulan_set),
+        "tahun": sorted(tahun_set),
+        "wilayah": wilayah_list,
+    }
 
 def delete_transaksi(db: Session, transaksi_id: int) -> Transaksi:
     db_transaksi = db.query(Transaksi).filter(Transaksi.id == transaksi_id).first()
