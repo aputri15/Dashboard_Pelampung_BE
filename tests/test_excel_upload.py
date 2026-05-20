@@ -246,7 +246,7 @@ class ExcelUploadTests(unittest.TestCase):
         self.assertIn("id_produk", " ".join(failed_second["errors"]))
         self.assertEqual(db.query(Transaksi).count(), 1)
 
-    def test_success_summary_counts_transaction_rows_not_blank_sheet_rows(self):
+    def test_success_summary_counts_transaction_rows_and_reports_blank_rows(self):
         db = make_db()
         second_row = VALID_ROW.copy()
         second_row[0] = "PO-202501-002"
@@ -257,9 +257,12 @@ class ExcelUploadTests(unittest.TestCase):
 
         self.assertTrue(result["success"])
         self.assertEqual(result["total_rows"], 2)
+        self.assertEqual(result["processed_rows"], 2)
         self.assertEqual(result["inserted_rows"], 2)
         self.assertEqual(result["skipped_rows"], 1)
-        self.assertIn("Berhasil mengimpor 2 dari 2 baris", result["message"])
+        self.assertEqual(result["blank_row_count"], 1)
+        self.assertEqual(result["blank_rows"], [3])
+        self.assertIn("Baris kosong dilewati: 3", result["message"])
 
     def test_concurrent_duplicate_upload_rolls_back_losing_insert(self):
         content = make_workbook_bytes([("MASTER2025", [HEADERS, VALID_ROW])])

@@ -116,6 +116,66 @@ class AdminRoleRevisionTests(unittest.TestCase):
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0].nomor_po, "PO-001")
 
+    def test_soft_deleted_success_log_is_hidden_but_still_blocks_duplicate_hash(self):
+        db = make_db()
+        crud_transaksi.create_log_upload(
+            db,
+            nama_file="dataset.xlsx",
+            jumlah_baris=10,
+            status="Sukses",
+            uploaded_by="admin",
+            file_hash="abc123",
+        )
+
+        visible_before, total_before = crud_transaksi.get_log_uploads(
+            db, page=1, per_page=10, include_deleted=False
+        )
+        self.assertEqual(total_before, 1)
+        self.assertEqual(len(visible_before), 1)
+
+        crud_transaksi.soft_delete_log_upload(db, log_id=visible_before[0].id)
+
+        visible_after, total_after = crud_transaksi.get_log_uploads(
+            db, page=1, per_page=10, include_deleted=False
+        )
+        self.assertEqual(total_after, 0)
+        self.assertEqual(visible_after, [])
+        self.assertIsNotNone(crud_transaksi.get_successful_upload_by_hash(db, "abc123"))
+
+    def test_log_uploads_combine_filename_month_year_and_status_filters(self):
+        db = make_db()
+        log_a = LogUpload(
+            tanggal="2026-05-19 10:00:00",
+            nama_file="mei-sukses.xlsx",
+            jumlah_baris=5,
+            status="Sukses",
+            uploaded_by="admin",
+            file_hash="hash-a",
+        )
+        log_b = LogUpload(
+            tanggal="2026-06-01 10:00:00",
+            nama_file="mei-gagal.xlsx",
+            jumlah_baris=0,
+            status="Gagal",
+            uploaded_by="admin",
+            file_hash="hash-b",
+        )
+        db.add_all([log_a, log_b])
+        db.commit()
+
+        logs, total = crud_transaksi.get_log_uploads(
+            db,
+            page=1,
+            per_page=10,
+            search="mei",
+            bulan="05",
+            tahun="2026",
+            status="Sukses",
+        )
+
+        self.assertEqual(total, 1)
+        self.assertEqual(logs[0].nama_file, "mei-sukses.xlsx")
+
 
 if __name__ == "__main__":
     unittest.main()

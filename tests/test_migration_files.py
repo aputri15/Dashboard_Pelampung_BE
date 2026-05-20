@@ -24,6 +24,15 @@ class MigrationFileTests(unittest.TestCase):
         requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8").lower()
         self.assertIn("alembic==", requirements)
 
+    def test_alembic_log_upload_soft_delete_migration_is_declared(self):
+        versions_dir = ROOT / "alembic" / "versions"
+        migrations = list(versions_dir.glob("*add_is_deleted_to_log_upload.py"))
+        self.assertEqual(len(migrations), 1)
+
+        migration = migrations[0].read_text(encoding="utf-8")
+        self.assertIn("is_deleted", migration)
+        self.assertIn("log_upload", migration)
+
 
 if __name__ == "__main__":
     unittest.main()
