@@ -37,6 +37,20 @@ def make_transaksi(**overrides):
     return data
 
 
+def create_user(db, username, email, role="admin", is_active=True):
+    return crud_user.create_user(
+        db,
+        UserCreate(
+            full_name=username.title(),
+            email=email,
+            username=username,
+            password="secret123",
+            role=role,
+            is_active=is_active,
+        ),
+    )
+
+
 class AdminRoleRevisionTests(unittest.TestCase):
     def test_create_manual_transaksi_computes_total_harga(self):
         db = make_db()
@@ -175,6 +189,39 @@ class AdminRoleRevisionTests(unittest.TestCase):
 
         self.assertEqual(total, 1)
         self.assertEqual(logs[0].nama_file, "mei-sukses.xlsx")
+
+    def test_user_conflict_detection_reports_username_and_email(self):
+        db = make_db()
+        existing = create_user(db, "admin1", "admin1@example.com", role="admin")
+
+        conflict = crud_user.get_user_conflicts(
+            db,
+            username="admin1",
+            email="admin1@example.com",
+            exclude_user_id=None,
+        )
+
+        self.assertEqual(conflict, {"username": True, "email": True})
+
+        conflict_excluding_self = crud_user.get_user_conflicts(
+            db,
+            username="admin1",
+            email="admin1@example.com",
+            exclude_user_id=existing.id,
+        )
+
+        self.assertEqual(conflict_excluding_self, {"username": False, "email": False})
+
+    def test_last_active_admin_guard_detects_deactivate_delete_or_demote(self):
+        db = make_db()
+        admin = create_user(db, "admin1", "admin1@example.com", role="admin", is_active=True)
+        owner = create_user(db, "owner1", "owner1@example.com", role="owner", is_active=True)
+
+        self.assertTrue(crud_user.is_last_active_admin(db, admin))
+        self.assertFalse(crud_user.is_last_active_admin(db, owner))
+
+        create_user(db, "admin2", "admin2@example.com", role="admin", is_active=True)
+        self.assertFalse(crud_user.is_last_active_admin(db, admin))
 
 
 if __name__ == "__main__":
