@@ -13,6 +13,42 @@ def get_user_by_email(db: Session, email: str) -> Optional[User]:
 def get_user(db: Session, user_id: int) -> Optional[User]:
     return db.query(User).filter(User.id == user_id).first()
 
+def get_user_conflicts(
+    db: Session,
+    username: Optional[str],
+    email: Optional[str],
+    exclude_user_id: Optional[int] = None,
+) -> dict:
+    query = db.query(User)
+    if exclude_user_id is not None:
+        query = query.filter(User.id != exclude_user_id)
+
+    username_exists = False
+    email_exists = False
+
+    if username:
+        username_exists = query.filter(User.username == username).first() is not None
+
+    query = db.query(User)
+    if exclude_user_id is not None:
+        query = query.filter(User.id != exclude_user_id)
+
+    if email:
+        email_exists = query.filter(User.email == email).first() is not None
+
+    return {"username": username_exists, "email": email_exists}
+
+def is_last_active_admin(db: Session, db_user: User) -> bool:
+    if db_user.role != "admin" or not db_user.is_active:
+        return False
+    active_admin_count = (
+        db.query(User)
+        .filter(User.role == "admin")
+        .filter(User.is_active == True)  # noqa: E712
+        .count()
+    )
+    return active_admin_count <= 1
+
 def get_users(db: Session, skip: int = 0, limit: int = 100) -> List[User]:
     return db.query(User).offset(skip).limit(limit).all()
 
