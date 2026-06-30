@@ -10,3 +10,16 @@ dashboard.db
 *.sqlite3
 
 .worktrees/
+
+# Testing (Jika nanti menggunakan pytest)
+.pytest_cache/
+.coverage
+htmlcov/
+# IDE / Editor (Mencegah settingan lokal ter-push)
+.vscode/
+.idea/
+# OS Files (Mencegah file sistem ter-push)
+.DS_Store
+Thumbs.db
+# Logs
+*.log
