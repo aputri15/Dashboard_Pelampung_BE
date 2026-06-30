@@ -1,0 +1,16 @@
+services:
+  backend:
+    build: .
+    image: ghcr.io/aputri15/dashboard_pelampung_be:latest
+    container_name: pelampung-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - SECRET_KEY=GANTI-DENGAN-KEY-AMAN-MINIMAL-32-KARAKTER
+      - ALLOWED_ORIGINS=*
+      - SQLALCHEMY_DATABASE_URI=sqlite:////app/dashboard.db
+    volumes:
+      - ./:/app
+
+
