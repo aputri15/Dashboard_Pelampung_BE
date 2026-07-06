@@ -1,6 +1,8 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.models.transaksi import Transaksi
+from app.crud.analytics_evaluasi_logistik import build_tlc_map
+
 
 def calculate_product_region_fit(db: Session, wilayah: str = None, model: str = None, bulan: str = None):
     """
@@ -16,6 +18,12 @@ def calculate_product_region_fit(db: Session, wilayah: str = None, model: str = 
     Smart Conditional:
     - Jika wilayah dipilih → GROUP BY kota (granular, tidak redundan dengan filter)
     - Jika semua wilayah → GROUP BY wilayah (ringkas, mudah dibandingkan)
+
+    PERBAIKAN: TLC per unit kini dihitung dari build_tlc_map() (data riil
+    Master_Logistik + berat produk), BUKAN lagi hardcoded {"Jawa": 15,
+    "Sumatera": 30, "Kalimantan": 40, default: 20}. Ini menyamakan sumber
+    TLC dengan modul Evaluasi Logistik, sesuai Rumus 4 (TLC per wilayah)
+    di landasan teori.
     """
     use_kota = bool(wilayah and wilayah not in ("", "Semua Wilayah"))
 
@@ -63,7 +71,8 @@ def calculate_product_region_fit(db: Session, wilayah: str = None, model: str = 
             Transaksi.wilayah
         ).all()
 
-    tlc_map = {"Jawa": 15, "Sumatera": 30, "Kalimantan": 40}
+    # --- PERBAIKAN: ganti hardcoded tlc_map dengan hasil perhitungan riil ---
+    tlc_map = build_tlc_map(db)
 
     product_fit_data = []
 
@@ -73,7 +82,9 @@ def calculate_product_region_fit(db: Session, wilayah: str = None, model: str = 
         volume = row.volume or 0
         cogs = row.cogs or 0
 
-        tlc_per_unit = tlc_map.get(w, 20)
+        # Fallback pakai __DEFAULT__ (rata-rata tertimbang semua wilayah
+        # yang ada datanya), BUKAN angka 20 yang tanpa dasar.
+        tlc_per_unit = tlc_map.get(w, tlc_map.get("__DEFAULT__", 0))
         tlc = volume * tlc_per_unit
 
         total_profit = revenue - cogs - tlc
@@ -102,5 +113,40 @@ def calculate_product_region_fit(db: Session, wilayah: str = None, model: str = 
 
     # Urutkan berdasarkan GPM tertinggi
     product_fit_data.sort(key=lambda x: x["gpm_percent"], reverse=True)
+
+    # --- PERBAIKAN: gabungkan volume + profitabilitas ---
+    # Sesuai teori 2.4.9: "analisis Product-Region Fit menggunakan gabungan
+    # antara volume penjualan dan tingkat profitabilitas untuk membantu
+    # menilai performa produk pada setiap wilayah" (mengacu konsep analisis
+    # portofolio produk, García-Vidal et al., 2023).
+    #
+    # Volume tinggi/rendah ditentukan relatif terhadap median volume pada
+    # hasil query saat ini (kota/wilayah/model/bulan yang sedang difilter).
+    # Profitabilitas tinggi/rendah memakai threshold GPM yang SAMA dengan
+    # kategori Sehat (>30%) dari teori 2.4.9, agar konsisten satu sumber.
+    if product_fit_data:
+        volumes_sorted = sorted(d["volume"] for d in product_fit_data)
+        n = len(volumes_sorted)
+        median_volume = (
+            volumes_sorted[n // 2] if n % 2 == 1
+            else (volumes_sorted[n // 2 - 1] + volumes_sorted[n // 2]) / 2
+        )
+    else:
+        median_volume = 0
+
+    for entry in product_fit_data:
+        volume_tinggi = entry["volume"] >= median_volume
+        profit_tinggi = entry["gpm_percent"] > 30  # selaras kategori "Sehat"
+
+        if volume_tinggi and profit_tinggi:
+            fit_category = "Andalan"          # volume tinggi, profit tinggi -> pertahankan
+        elif volume_tinggi and not profit_tinggi:
+            fit_category = "Perlu Efisiensi"  # volume tinggi, profit rendah -> evaluasi biaya
+        elif not volume_tinggi and profit_tinggi:
+            fit_category = "Potensial"        # volume rendah, profit tinggi -> bisa dikembangkan
+        else:
+            fit_category = "Evaluasi"         # volume rendah, profit rendah -> pertimbangkan hentikan
+
+        entry["fit_category"] = fit_category
 
     return product_fit_data

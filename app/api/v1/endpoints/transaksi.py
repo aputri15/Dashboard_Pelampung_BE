@@ -178,6 +178,22 @@ def read_log_uploads(
     return {"data": data, "total": total, "page": page, "per_page": per_page}
 
 
+@router.post("/log/uploads/{log_id}/allow-reupload", response_model=LogUploadResponse)
+def allow_upload_reupload(
+    log_id: int,
+    db: Session = Depends(deps.get_db),
+    current_user=Depends(deps.get_current_active_admin),
+) -> Any:
+    """Allow one re-upload for a successful upload log that currently locks a file hash."""
+    updated = crud_transaksi.allow_log_reupload(db, log_id=log_id, allowed_by=current_user.username)
+    if not updated:
+        raise HTTPException(
+            status_code=400,
+            detail="Log upload ini tidak bisa diizinkan untuk upload ulang.",
+        )
+    return updated
+
+
 @router.get("/log/upload-filter-options", response_model=LogUploadFilterOptionsResponse)
 def read_log_upload_filter_options(
     db: Session = Depends(deps.get_db),

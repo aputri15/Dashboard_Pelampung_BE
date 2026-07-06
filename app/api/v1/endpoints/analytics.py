@@ -83,7 +83,7 @@ def get_product_region_fit(
 @router.get("/evaluasi-logistik/internal")
 def get_evaluasi_internal(
     db: Session = Depends(deps.get_db),
-    kapasitas: int = Query(1000, ge=1),
+    kapasitas: int = Query(100000, ge=1),
     current_user = Depends(deps.get_current_user)
 ) -> Any:
     """Endpoint Evaluasi Logistik Internal (Sukabumi). Kebal terhadap filter bulan."""
@@ -93,7 +93,7 @@ def get_evaluasi_internal(
 def get_evaluasi_eksternal(
     db: Session = Depends(deps.get_db),
     bulan: Optional[str] = None,
-    kapasitas: int = Query(1000, ge=1),
+    kapasitas: int = Query(100000, ge=1),
     current_user = Depends(deps.get_current_user)
 ) -> Any:
     """Endpoint Evaluasi Logistik Eksternal (KPI COD, Grafik COD, Tabel Gabungan)."""

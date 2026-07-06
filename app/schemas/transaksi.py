@@ -1,6 +1,23 @@
 from pydantic import BaseModel
 from typing import Optional, List
 
+
+class UploadErrorDetail(BaseModel):
+    row: int
+    column: str
+    field: str
+    value: object
+    reason: str
+    fix: str
+
+
+class DuplicateUploadDetail(BaseModel):
+    id: int
+    tanggal: str
+    nama_file: str
+    uploaded_by: str
+
+
 class TransaksiBase(BaseModel):
     nomor_po: str
     tanggal_po: str
@@ -16,6 +33,8 @@ class TransaksiBase(BaseModel):
     harga_satuan: float
     total_harga: float
     modal_unit: Optional[float] = None
+    source_log_id: Optional[int] = None
+    uploaded_at: Optional[str] = None
 
 class TransaksiCreate(TransaksiBase):
     pass
@@ -61,6 +80,11 @@ class LogUploadResponse(BaseModel):
     jumlah_baris: int
     status: str
     uploaded_by: str
+    reupload_allowed: bool = False
+    reupload_allowed_by: Optional[str] = None
+    reupload_allowed_at: Optional[str] = None
+    reupload_used_at: Optional[str] = None
+    can_allow_reupload: bool = False
     class Config:
         from_attributes = True
 
@@ -85,3 +109,4 @@ class TransaksiFilterOptionsResponse(BaseModel):
     bulan: List[str]
     tahun: List[str]
     wilayah: List[str]
+

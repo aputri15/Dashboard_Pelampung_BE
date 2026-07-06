@@ -1,5 +1,6 @@
-from sqlalchemy import Boolean, Column, Integer, String, Float, Text
+from sqlalchemy import Boolean, Column, Integer, String, Float
 from app.db.database import Base
+
 
 class Transaksi(Base):
     __tablename__ = "transaksi"
@@ -18,6 +19,9 @@ class Transaksi(Base):
     harga_satuan = Column(Float)
     total_harga = Column(Float)
     modal_unit = Column(Float)
+    source_log_id = Column(Integer, nullable=True, index=True)
+    uploaded_at = Column(String, nullable=True)
+
 
 class LogUpload(Base):
     __tablename__ = "log_upload"
@@ -29,3 +33,7 @@ class LogUpload(Base):
     uploaded_by = Column(String)
     file_hash = Column(String, nullable=True, index=True)
     is_deleted = Column(Boolean(), default=False, nullable=False)
+    reupload_allowed = Column(Boolean(), default=False, nullable=False)
+    reupload_allowed_by = Column(String, nullable=True)
+    reupload_allowed_at = Column(String, nullable=True)
+    reupload_used_at = Column(String, nullable=True)

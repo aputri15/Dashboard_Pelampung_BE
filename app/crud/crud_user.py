@@ -74,8 +74,9 @@ def update_user(db: Session, db_user: User, user_in: UserUpdate) -> User:
     db.refresh(db_user)
     return db_user
 
-def delete_user(db: Session, user_id: int) -> User:
+def delete_user(db: Session, user_id: int) -> Optional[User]:
     db_user = db.query(User).get(user_id)
-    db.delete(db_user)
-    db.commit()
+    if db_user:
+        db.delete(db_user)
+        db.commit()
     return db_user
